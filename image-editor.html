@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Editor Local</title>
+<script src="./pdf-lib.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1a1a2e; color: #e0e0e0;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Header */
+header {
+  background: #16213e; border-bottom: 1px solid #0f3460;
+  padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.logo { font-size: 18px; font-weight: 700; color: #4a9eff; }
+.logo span { color: #e0e0e0; font-weight: 400; }
+header .spacer { flex: 1; }
+.header-info { font-size: 12px; color: #555; }
+
+/* Buttons */
+.btn {
+  padding: 6px 14px; border-radius: 6px; border: none;
+  cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s;
+}
+.btn-primary { background: #4a9eff; color: white; }
+.btn-primary:hover:not(:disabled) { background: #2d7dd2; }
+.btn-secondary { background: #0f3460; color: #e0e0e0; border: 1px solid #1a4a80; }
+.btn-secondary:hover:not(:disabled) { background: #1a4a80; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Main Layout */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* File Panel */
+.file-panel {
+  width: 190px; flex-shrink: 0; background: #16213e;
+  border-right: 1px solid #0f3460; display: flex; flex-direction: column; overflow: hidden;
+}
+.file-panel-header {
+  padding: 10px 12px; font-size: 11px; font-weight: 600;
+  color: #666; text-transform: uppercase; letter-spacing: 1px;
+  border-bottom: 1px solid #0f3460; flex-shrink: 0;
+}
+.file-list { flex: 1; overflow-y: auto; padding: 4px; }
+.file-item {
+  padding: 8px 10px; border-radius: 6px; font-size: 12px;
+  display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
+  color: #bbb; user-select: none;
+}
+.file-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+
+/* Right Panel */
+.right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Toolbar */
+.toolbar {
+  background: #16213e; border-bottom: 1px solid #0f3460;
+  padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap;
+  align-items: center; flex-shrink: 0;
+}
+.toolbar .btn { padding: 5px 12px; font-size: 12px; }
+.toolbar-sep { width: 1px; height: 22px; background: #0f3460; margin: 0 2px; }
+.toolbar-spacer { flex: 1; }
+.selection-info { font-size: 11px; color: #666; }
+
+/* Page Area */
+.page-area { flex: 1; overflow-y: auto; padding: 16px; position: relative; }
+.page-area.drag-over { background: rgba(74,158,255,0.04); outline: 2px dashed #4a9eff; outline-offset: -8px; border-radius: 8px; }
+
+/* Empty State */
+.empty-state { text-align: center; padding: 80px 20px; pointer-events: none; }
+.empty-state h3 { font-size: 20px; color: #444; margin-bottom: 10px; }
+.empty-state p { font-size: 13px; color: #444; line-height: 1.8; }
+.empty-icon { font-size: 48px; margin-bottom: 16px; }
+
+/* Thumbnail Grid */
+.thumbnail-grid {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  align-content: flex-start;
+}
+
+/* Thumbnail Item */
+.thumbnail-item {
+  position: relative; border: 2px solid transparent; border-radius: 8px;
+  overflow: visible; cursor: pointer; background: #16213e;
+  transition: border-color 0.1s; flex-shrink: 0; user-select: none;
+}
+.thumbnail-item:hover { border-color: #1a4a80; }
+.thumbnail-item.selected { border-color: #4a9eff; }
+.thumbnail-item.drag-over { border-color: #4a9eff; border-style: dashed; }
+.thumbnail-item.dragging { opacity: 0.35; }
+.thumb-inner { border-radius: 6px; overflow: hidden; background: #2a2a3e; display: flex; align-items: center; justify-content: center; min-width: 80px; min-height: 80px; }
+.thumbnail-canvas { display: block; }
+.thumb-placeholder { width: 110px; height: 80px; display: flex; align-items: center; justify-content: center; color: #444; font-size: 11px; }
+.page-label {
+  text-align: center; font-size: 11px; color: #666;
+  padding: 4px 2px 2px; background: transparent;
+}
+.check-mark {
+  position: absolute; top: -6px; right: -6px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #4a9eff; color: white; font-size: 11px;
+  display: none; align-items: center; justify-content: center;
+  font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  z-index: 2;
+}
+.thumbnail-item.selected .check-mark { display: flex; }
+
+/* Modals */
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal.hidden { display: none; }
+.modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
+.modal-box {
+  position: relative; background: #16213e;
+  border: 1px solid #0f3460; border-radius: 12px;
+  padding: 24px; min-width: 340px; max-width: 92vw;
+  max-height: 90vh; overflow-y: auto; z-index: 1;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+.modal-close-x {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: none; color: #666; font-size: 22px;
+  cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px;
+}
+.modal-close-x:hover { color: #e0e0e0; background: #0f3460; }
+
+/* Preview Modal */
+.preview-box {
+  background: #111; padding: 16px; max-width: 95vw; max-height: 95vh;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+#previewCanvas { max-width: 100%; max-height: calc(90vh - 80px); display: block; }
+.preview-nav { display: flex; gap: 10px; align-items: center; }
+.preview-nav span { font-size: 13px; color: #888; min-width: 80px; text-align: center; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 3px; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #e0e0e0; padding: 10px 20px; border-radius: 8px;
+  font-size: 13px; z-index: 200; opacity: 0; pointer-events: none;
+  transition: opacity 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">IMG<span> Editor Local</span></div>
+  <div class="spacer"></div>
+  <span class="header-info" id="headerInfo"></span>
+  <button class="btn btn-primary" id="openFileBtn">ファイルを開く</button>
+  <input type="file" id="fileInput" accept="image/*" multiple hidden>
+</header>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- File Panel -->
+  <div class="file-panel">
+    <div class="file-panel-header">ファイル</div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="right-panel">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <button class="btn btn-secondary" id="deleteBtn" title="選択画像を削除 (Delete)">削除</button>
+      <button class="btn btn-secondary" id="rotateLeftBtn" title="左90°回転">↺ 左回転</button>
+      <button class="btn btn-secondary" id="rotateRightBtn" title="右90°回転">↻ 右回転</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn btn-secondary" id="toPDFBtn" title="全画像を1つのPDFに結合">PDFに変換</button>
+      <div class="toolbar-spacer"></div>
+      <span class="selection-info" id="selectionInfo"></span>
+      <button class="btn btn-primary" id="downloadBtn">↓ ダウンロード</button>
+    </div>
+
+    <!-- Page Area -->
+    <div class="page-area" id="pageArea">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">🖼️</div>
+        <h3>画像を読み込む</h3>
+        <p>ここに画像ファイルをドラッグ＆ドロップ<br>または「ファイルを開く」をクリック<br>対応形式: JPG / PNG / WEBP / GIF</p>
+      </div>
+      <div class="thumbnail-grid" id="thumbnailGrid" style="display:none"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div id="previewModal" class="modal hidden">
+  <div class="modal-overlay"></div>
+  <div class="modal-box preview-box">
+    <button class="modal-close-x" data-close="previewModal">×</button>
+    <div class="preview-nav">
+      <button class="btn btn-secondary" id="prevImgBtn">◀</button>
+      <span id="previewLabel">1 / 1</span>
+      <button class="btn btn-secondary" id="nextImgBtn">▶</button>
+    </div>
+    <canvas id="previewCanvas"></canvas>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let images   = [];  // { name, objectUrl, rotation, width, height }
+let selected = new Set();
+let previewIdx = 0;
+let dragSrcIdx = null;
+
+// ─── DOM ────────────────────────────────────────────────────────────────────
+const fileListEl      = document.getElementById('fileList');
+const thumbnailGridEl = document.getElementById('thumbnailGrid');
+const emptyStateEl    = document.getElementById('emptyState');
+const pageAreaEl      = document.getElementById('pageArea');
+const fileInputEl     = document.getElementById('fileInput');
+const selectionInfoEl = document.getElementById('selectionInfo');
+const headerInfoEl    = document.getElementById('headerInfo');
+
+// ─── Toast ──────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, duration = 2200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// ─── File Loading ────────────────────────────────────────────────────────────
+async function handleFiles(fileList) {
+  const imageFiles = [...fileList].filter(f => f.type.startsWith('image/'));
+  if (!imageFiles.length) { showToast('画像ファイル（JPG / PNG / WEBP）を選択してください'); return; }
+  for (const f of imageFiles) {
+    await addImage(f).catch(err => {
+      showToast(`読み込み失敗: ${f.name}`);
+      console.error(err);
+    });
+  }
+}
+
+async function addImage(file) {
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = objectUrl;
+  await new Promise((res, rej) => {
+    img.onload = res;
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); rej(new Error('Load failed')); };
+  });
+  images.push({ name: file.name, objectUrl, rotation: 0, width: img.naturalWidth, height: img.naturalHeight });
+  updateFileList();
+  renderAllThumbnails();
+  updateHeader();
+}
+
+function updateHeader() {
+  headerInfoEl.textContent = images.length ? `${images.length}枚` : '';
+}
+
+// ─── File List ───────────────────────────────────────────────────────────────
+function updateFileList() {
+  fileListEl.innerHTML = '';
+  images.forEach(img => {
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.title = img.name;
+    div.innerHTML = `<span>🖼️</span><span class="file-item-name">${img.name}</span>`;
+    fileListEl.appendChild(div);
+  });
+}
+
+// ─── Thumbnail Grid ──────────────────────────────────────────────────────────
+function renderAllThumbnails() {
+  thumbnailGridEl.innerHTML = '';
+  emptyStateEl.style.display = images.length ? 'none' : '';
+  thumbnailGridEl.style.display = images.length ? 'flex' : 'none';
+
+  images.forEach((_, i) => {
+    thumbnailGridEl.appendChild(makeThumbnailItem(i));
+    renderThumb(i);
+  });
+
+  updateSelectionUI();
+  updateHeader();
+}
+
+function makeThumbnailItem(idx) {
+  const div = document.createElement('div');
+  div.className = 'thumbnail-item';
+  div.dataset.idx = idx;
+  div.draggable = true;
+
+  const inner = document.createElement('div');
+  inner.className = 'thumb-inner';
+  inner.innerHTML = '<div class="thumb-placeholder">読込中...</div>';
+
+  const label = document.createElement('div');
+  label.className = 'page-label';
+  label.textContent = idx + 1;
+
+  const check = document.createElement('div');
+  check.className = 'check-mark';
+  check.textContent = '✓';
+
+  div.appendChild(inner);
+  div.appendChild(label);
+  div.appendChild(check);
+
+  div.addEventListener('click', e => {
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelect(idx);
+    } else if (e.shiftKey && selected.size > 0) {
+      const last = Math.max(...selected);
+      const [lo, hi] = [Math.min(last, idx), Math.max(last, idx)];
+      for (let i = lo; i <= hi; i++) selected.add(i);
+      updateSelectionUI();
+    } else {
+      selected.clear();
+      selected.add(idx);
+      updateSelectionUI();
+    }
+  });
+
+  div.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    openPreview(idx);
+  });
+
+  return div;
+}
+
+const THUMB_SIZE = 110;
+
+function renderThumb(idx) {
+  if (idx >= images.length) return;
+  const { objectUrl, rotation, width, height } = images[idx];
+
+  const items = thumbnailGridEl.querySelectorAll('.thumbnail-item');
+  const item = items[idx];
+  if (!item) return;
+
+  const img = new Image();
+  img.onload = () => {
+    const isSwapped = rotation % 180 !== 0;
+    const dispW = isSwapped ? height : width;
+    const dispH = isSwapped ? width : height;
+    const scale = Math.min(THUMB_SIZE / dispW, THUMB_SIZE / dispH);
+    const canvW = Math.max(1, Math.round(dispW * scale));
+    const canvH = Math.max(1, Math.round(dispH * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'thumbnail-canvas';
+    canvas.width  = canvW;
+    canvas.height = canvH;
+
+    const ctx = canvas.getContext('2d');
+    ctx.translate(canvW / 2, canvH / 2);
+    ctx.rotate(rotation * Math.PI / 180);
+    ctx.drawImage(img, -(width * scale) / 2, -(height * scale) / 2, width * scale, height * scale);
+
+    const inner = item.querySelector('.thumb-inner');
+    inner.innerHTML = '';
+    inner.appendChild(canvas);
+  };
+  img.src = objectUrl;
+}
+
+// ─── Selection ───────────────────────────────────────────────────────────────
+function toggleSelect(idx) {
+  if (selected.has(idx)) selected.delete(idx); else selected.add(idx);
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  thumbnailGridEl.querySelectorAll('.thumbnail-item').forEach((el, i) => {
+    el.classList.toggle('selected', selected.has(i));
+  });
+  const n = selected.size;
+  selectionInfoEl.textContent = n ? `${n}枚選択中` : '';
+}
+
+// ─── Drag & Drop: Reorder ─────────────────────────────────────────────────────
+thumbnailGridEl.addEventListener('dragstart', e => {
+  const item = e.target.closest('.thumbnail-item');
+  if (!item) return;
+  dragSrcIdx = parseInt(item.dataset.idx);
+  setTimeout(() => item.classList.add('dragging'), 0);
+});
+
+thumbnailGridEl.addEventListener('dragend', e => {
+  const item = e.target.closest('.thumbnail-item');
+  if (item) item.classList.remove('dragging');
+  thumbnailGridEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  dragSrcIdx = null;
+});
+
+thumbnailGridEl.addEventListener('dragover', e => {
+  e.preventDefault();
+  const item = e.target.closest('.thumbnail-item');
+  thumbnailGridEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  if (item) item.classList.add('drag-over');
+});
+
+thumbnailGridEl.addEventListener('drop', e => {
+  e.preventDefault();
+  const item = e.target.closest('.thumbnail-item');
+  if (!item || dragSrcIdx === null) return;
+  const destIdx = parseInt(item.dataset.idx);
+  if (dragSrcIdx !== destIdx) {
+    const [moved] = images.splice(dragSrcIdx, 1);
+    images.splice(destIdx, 0, moved);
+    selected.clear();
+    renderAllThumbnails();
+    updateFileList();
+    showToast('画像を移動しました');
+  }
+});
+
+// ─── Drop Zone (file drop on page area) ─────────────────────────────────────
+pageAreaEl.addEventListener('dragover', e => {
+  if (e.dataTransfer.types.includes('Files')) {
+    e.preventDefault();
+    pageAreaEl.classList.add('drag-over');
+  }
+});
+pageAreaEl.addEventListener('dragleave', e => {
+  if (!pageAreaEl.contains(e.relatedTarget)) pageAreaEl.classList.remove('drag-over');
+});
+pageAreaEl.addEventListener('drop', e => {
+  pageAreaEl.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) {
+    e.preventDefault();
+    handleFiles(e.dataTransfer.files);
+  }
+});
+
+// ─── Delete ──────────────────────────────────────────────────────────────────
+function deleteSelected() {
+  if (!selected.size) { showToast('削除する画像を選択してください'); return; }
+  if (!confirm(`選択した ${selected.size} 枚を削除しますか？`)) return;
+  [...selected].sort((a, b) => b - a).forEach(i => {
+    URL.revokeObjectURL(images[i].objectUrl);
+    images.splice(i, 1);
+  });
+  selected.clear();
+  renderAllThumbnails();
+  updateFileList();
+  showToast('削除しました');
+}
+
+// ─── Rotate ──────────────────────────────────────────────────────────────────
+function rotateImages(angle) {
+  const targets = selected.size ? [...selected] : images.map((_, i) => i);
+  targets.forEach(i => {
+    images[i].rotation = ((images[i].rotation + angle) % 360 + 360) % 360;
+  });
+  targets.forEach(i => {
+    const items = thumbnailGridEl.querySelectorAll('.thumbnail-item');
+    const item = items[i];
+    if (item) {
+      item.querySelector('.thumb-inner').innerHTML = '<div class="thumb-placeholder">更新中...</div>';
+      renderThumb(i);
+    }
+  });
+  showToast(selected.size ? `${selected.size}枚を回転しました` : `全${targets.length}枚を回転しました`);
+}
+
+// ─── Preview ──────────────────────────────────────────────────────────────────
+async function openPreview(idx) {
+  previewIdx = idx;
+  showModal('previewModal');
+  await renderPreviewImage();
+}
+
+async function renderPreviewImage() {
+  if (previewIdx < 0 || previewIdx >= images.length) return;
+  const { objectUrl, rotation, width, height } = images[previewIdx];
+
+  const canvas = document.getElementById('previewCanvas');
+  const img = new Image();
+  img.src = objectUrl;
+  await new Promise(r => img.onload = r);
+
+  const isSwapped = rotation % 180 !== 0;
+  const dispW = isSwapped ? height : width;
+  const dispH = isSwapped ? width : height;
+  const maxW  = window.innerWidth  * 0.85;
+  const maxH  = window.innerHeight * 0.80;
+  const scale = Math.min(maxW / dispW, maxH / dispH, 1.0);
+  const canvW = Math.max(1, Math.round(dispW * scale));
+  const canvH = Math.max(1, Math.round(dispH * scale));
+
+  canvas.width  = canvW;
+  canvas.height = canvH;
+
+  const ctx = canvas.getContext('2d');
+  ctx.translate(canvW / 2, canvH / 2);
+  ctx.rotate(rotation * Math.PI / 180);
+  ctx.drawImage(img, -(width * scale) / 2, -(height * scale) / 2, width * scale, height * scale);
+
+  document.getElementById('previewLabel').textContent = `${previewIdx + 1} / ${images.length}`;
+}
+
+// ─── Get Rotated Blob ─────────────────────────────────────────────────────────
+function getRotatedBlob(idx, mimeType = 'image/jpeg', quality = 0.92) {
+  const { objectUrl, rotation, width, height } = images[idx];
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const isSwapped = rotation % 180 !== 0;
+      const canvW = isSwapped ? height : width;
+      const canvH = isSwapped ? width : height;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = canvW;
+      canvas.height = canvH;
+
+      const ctx = canvas.getContext('2d');
+      if (mimeType === 'image/jpeg') {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvW, canvH);
+      }
+      ctx.translate(canvW / 2, canvH / 2);
+      ctx.rotate(rotation * Math.PI / 180);
+      ctx.drawImage(img, -width / 2, -height / 2, width, height);
+
+      canvas.toBlob(resolve, mimeType, quality);
+    };
+    img.src = objectUrl;
+  });
+}
+
+// ─── Save Helpers ─────────────────────────────────────────────────────────────
+async function saveBlob(blob, suggestedName) {
+  const isPdf = suggestedName.match(/\.pdf$/i);
+  const types = isPdf
+    ? [{ description: 'PDF ファイル', accept: { 'application/pdf': ['.pdf'] } }]
+    : [{ description: 'JPEG 画像',   accept: { 'image/jpeg': ['.jpg'] } }];
+
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName, types });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (e) {
+      if (e.name === 'AbortError') return false;
+      console.warn('showSaveFilePicker 失敗:', e);
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: suggestedName });
+  a.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+async function saveBlobsToDir(fileList) {
+  if ('showDirectoryPicker' in window) {
+    try {
+      const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+      for (const { blob, name } of fileList) {
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w  = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+      }
+      return true;
+    } catch (e) {
+      if (e.name === 'AbortError') return false;
+      console.warn('showDirectoryPicker 失敗:', e);
+    }
+  }
+  for (const { blob, name } of fileList) {
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    a.click();
+    URL.revokeObjectURL(url);
+    await new Promise(r => setTimeout(r, 80));
+  }
+  return true;
+}
+
+// ─── Download (JPG) ───────────────────────────────────────────────────────────
+async function downloadImages() {
+  if (!images.length) { showToast('画像が読み込まれていません'); return; }
+  const btn = document.getElementById('downloadBtn');
+  btn.disabled = true; btn.textContent = '処理中...';
+  try {
+    const targets = selected.size
+      ? [...selected].sort((a, b) => a - b)
+      : images.map((_, i) => i);
+
+    if (targets.length === 1) {
+      const idx  = targets[0];
+      const blob = await getRotatedBlob(idx, 'image/jpeg', 0.92);
+      const name = images[idx].name.replace(/\.[^.]+$/, '') + '_edited.jpg';
+      const saved = await saveBlob(blob, name);
+      if (saved) showToast('保存しました');
+    } else {
+      const fileList = [];
+      for (const idx of targets) {
+        const blob = await getRotatedBlob(idx, 'image/jpeg', 0.92);
+        const name = String(idx + 1).padStart(3, '0') + '_' + images[idx].name.replace(/\.[^.]+$/, '') + '_edited.jpg';
+        fileList.push({ blob, name });
+      }
+      const saved = await saveBlobsToDir(fileList);
+      if (saved) showToast(`${fileList.length}枚を保存しました`);
+    }
+  } catch (e) {
+    showToast('エラーが発生しました');
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = '↓ ダウンロード';
+  }
+}
+
+// ─── Convert to PDF ───────────────────────────────────────────────────────────
+async function convertToPDF() {
+  if (!images.length) { showToast('画像が読み込まれていません'); return; }
+  const btn = document.getElementById('toPDFBtn');
+  btn.disabled = true; btn.textContent = '処理中...';
+  try {
+    const { PDFDocument } = PDFLib;
+    const doc = await PDFDocument.create();
+
+    for (let idx = 0; idx < images.length; idx++) {
+      const blob  = await getRotatedBlob(idx, 'image/jpeg', 0.92);
+      const bytes = await blob.arrayBuffer();
+      const embedded = await doc.embedJpg(bytes);
+      const page = doc.addPage([embedded.width, embedded.height]);
+      page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
+    }
+
+    const pdfBytes = await doc.save();
+    const pdfBlob  = new Blob([pdfBytes], { type: 'application/pdf' });
+    const baseName = images.length === 1
+      ? images[0].name.replace(/\.[^.]+$/, '') + '.pdf'
+      : 'combined.pdf';
+    const saved = await saveBlob(pdfBlob, baseName);
+    if (saved) showToast('PDFを保存しました');
+  } catch (e) {
+    showToast('エラーが発生しました');
+    console.error(e);
+  } finally {
+    btn.disabled = false; btn.textContent = 'PDFに変換';
+  }
+}
+
+// ─── Modal Helpers ────────────────────────────────────────────────────────────
+function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+// ─── Event Listeners ─────────────────────────────────────────────────────────
+document.getElementById('openFileBtn').addEventListener('click', () => fileInputEl.click());
+fileInputEl.addEventListener('change', e => { handleFiles(e.target.files); fileInputEl.value = ''; });
+
+document.getElementById('deleteBtn').addEventListener('click', deleteSelected);
+document.getElementById('rotateLeftBtn').addEventListener('click', () => rotateImages(-90));
+document.getElementById('rotateRightBtn').addEventListener('click', () => rotateImages(90));
+document.getElementById('downloadBtn').addEventListener('click', downloadImages);
+document.getElementById('toPDFBtn').addEventListener('click', convertToPDF);
+
+document.getElementById('prevImgBtn').addEventListener('click', () => {
+  if (previewIdx > 0) { previewIdx--; renderPreviewImage(); }
+});
+document.getElementById('nextImgBtn').addEventListener('click', () => {
+  if (previewIdx < images.length - 1) { previewIdx++; renderPreviewImage(); }
+});
+
+document.querySelectorAll('[data-close]').forEach(btn => {
+  btn.addEventListener('click', () => hideModal(btn.dataset.close));
+});
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', () => {
+    document.querySelectorAll('.modal:not(.hidden)').forEach(m => hideModal(m.id));
+  });
+});
+
+document.addEventListener('keydown', e => {
+  const inInput = e.target.matches('input, textarea, select');
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal:not(.hidden)').forEach(m => hideModal(m.id));
+    return;
+  }
+  if (inInput) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault();
+    images.forEach((_, i) => selected.add(i));
+    updateSelectionUI();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    e.preventDefault();
+    selected.clear();
+    updateSelectionUI();
+  }
+  if (document.getElementById('previewModal').classList.contains('hidden')) return;
+  if (e.key === 'ArrowLeft'  && previewIdx > 0)                    { previewIdx--; renderPreviewImage(); }
+  if (e.key === 'ArrowRight' && previewIdx < images.length - 1)    { previewIdx++; renderPreviewImage(); }
+});
+</script>
+</body>
+</html>
